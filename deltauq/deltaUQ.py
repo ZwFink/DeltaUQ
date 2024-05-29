@@ -117,8 +117,6 @@ class deltaUQ_CNN(deltaUQ):
             '''
             if base_network is not None:
                 self.net = base_network
-                if self.net.conv1.weight.shape[1]!=6:
-                    raise ValueError('Base Network has incorrect number of input channels (must be 6 for RGB datasets)')
 
     def corruption(self,samples):
         self.txs = transforms.Compose([
