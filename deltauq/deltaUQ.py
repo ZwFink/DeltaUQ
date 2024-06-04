@@ -37,13 +37,16 @@ class deltaUQ(torch.nn.Module):
         '''
         n_img = x.shape[0]
         if anchors is None:
-            anchors = x[torch.randperm(n_img),:]
+            anchors = x[torch.randperm(n_img, device=x.device), :]
+
         
         ## make anchors (n_anchors) --> n_img*n_anchors
         if self.training:
-            A = anchors[torch.randint(anchors.shape[0],(n_img*n_anchors,)),:]
+            A = anchors[torch.randint(0, anchors.shape[0],(n_img*n_anchors,)),:]
         else:
-            A = torch.repeat_interleave(anchors[torch.randperm(n_anchors),:],n_img,dim=0)    
+            rp = torch.randperm(n_anchors, device=anchors.device)
+            ilp = anchors[rp,:]
+            A = torch.repeat_interleave(ilp,n_img,dim=0)    
 
         if corrupt:
             refs = self.corruption(A)
@@ -144,7 +147,12 @@ class deltaUQ_CNN(deltaUQ):
         a_batch = self.create_anchored_batch(x,anchors=anchors,n_anchors=n_anchors,corrupt=corrupt)
         p = self.net(a_batch)
         
-        p = p.reshape(n_anchors,x.shape[0],p.shape[1])
+        # This un-does the part of the reshape that takes it to 
+        # n_img * n_anchors, and then averages over the n_anchors.
+        # However, it doesn't work for FCNNs. For now,
+        # hard-code the fix for FCNN
+        # p = p.reshape(n_anchors,x.shape[0],p.shape[1])
+        p = p.reshape(n_anchors, x.shape[0], *p.shape[1::])
         mu = p.mean(0)
 
         if return_std:
