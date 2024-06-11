@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 
 
 class deltaUQ(torch.nn.Module):
-    def __init__(self,base_network):
+    def __init__(self,base_network, estimator ='std'):
             super(deltaUQ, self).__init__()
             '''
 
@@ -24,6 +24,8 @@ class deltaUQ(torch.nn.Module):
                 self.net = base_network
             else:
                 raise Exception('base network needs to be defined')
+            
+            self.estimator = estimator
 
     def create_anchored_batch(self,x,anchors=None,n_anchors=1,corrupt=False):
         '''
@@ -178,7 +180,18 @@ class deltaUQ_MLP(deltaUQ):
         mu = p.mean(0)
 
         if return_std:
-            std = p.std(0)
+            if self.estimator == 'std':
+                std = p.std(0)
+            elif self.estimator == 'rsd':
+                std = p.std(0)
+                std = std / mu
+            elif self.estimator == 'minmax':
+                std = p.max(0)[0] - p.min(0)[0]
+                std = std / mu
+            elif self.estimator == 'maxmin':
+                std = p.max(0)[0] - p.min(0)[0]
+            else:
+                raise ValueError(f"Unknown estimator: {self.estimator}")
             return mu, std
         else:
             return mu
