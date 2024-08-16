@@ -184,7 +184,7 @@ class deltaUQ_MLP(deltaUQ):
                 std = p.std(0)
             elif self.estimator == 'rsd':
                 std = p.std(0)
-                std = std / mu
+                std = std / (mu+1e-8)
             elif self.estimator == 'minmax':
                 std = p.max(0)[0] - p.min(0)[0]
                 std = std / mu
