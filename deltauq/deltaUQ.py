@@ -39,16 +39,15 @@ class deltaUQ(torch.nn.Module):
         '''
         n_img = x.shape[0]
         if anchors is None:
-            anchors = x[torch.randperm(n_img, device=x.device), :]
-
+            anchors = x[torch.randperm(n_img),:]
         
         ## make anchors (n_anchors) --> n_img*n_anchors
         if self.training:
-            A = anchors[torch.randint(0, anchors.shape[0],(n_img*n_anchors,)),:]
+            A = anchors[torch.randint(anchors.shape[0],(n_img*n_anchors,)),:]
+            A = torch.cat((A, x), dim=0)  # Added these two lines to make sure the model sees 'zero' residual during training
+            x = torch.cat((x, x), dim=0)  # i.e, [r, 0]
         else:
-            rp = torch.randperm(n_anchors, device=anchors.device)
-            ilp = anchors[rp,:]
-            A = torch.repeat_interleave(ilp,n_img,dim=0)    
+            A = torch.repeat_interleave(anchors[torch.randperm(n_anchors),:],n_img,dim=0)    
 
         if corrupt:
             refs = self.corruption(A)
@@ -65,7 +64,6 @@ class deltaUQ(torch.nn.Module):
             diff = x.tile((n_anchors,1,1,1)) - A
 
         batch = torch.cat([refs,diff],axis=1)
-
         return batch
 
     
@@ -154,7 +152,8 @@ class deltaUQ_CNN(deltaUQ):
         # However, it doesn't work for FCNNs. For now,
         # hard-code the fix for FCNN
         # p = p.reshape(n_anchors,x.shape[0],p.shape[1])
-        p = p.reshape(n_anchors, x.shape[0], *p.shape[1::])
+        p = p.reshape(n_anchors,x.shape[0],p.shape[1])
+        # p = p.reshape(n_anchors, x.shape[0], *p.shape[1::])
         mu = p.mean(0)
 
         if return_std:
@@ -168,7 +167,7 @@ class deltaUQ_CNN(deltaUQ):
 
 
 class deltaUQ_MLP(deltaUQ):
-    def forward(self,x,anchors=None,corrupt=False,n_anchors=1,return_std=False):
+    def forward(self,x,anchors=None,corrupt=False,n_anchors=1,return_std=False, return_pred_matrix=False):
         # no calibration
         if n_anchors==1 and return_std:
             raise Warning('Use n_anchor>1, std. dev cannot be computed!')
@@ -176,23 +175,21 @@ class deltaUQ_MLP(deltaUQ):
         a_batch = self.create_anchored_batch(x,anchors=anchors,n_anchors=n_anchors,corrupt=corrupt)
         p = self.net(a_batch)
         
-        p = p.reshape(n_anchors,x.shape[0],p.shape[1])
-        mu = p.mean(0)
+        if self.training:
+            p = p.reshape(n_anchors,x.shape[0]*2,p.shape[1]) # Modified this to accommodate the fact we have included 'zero' residual
+            mu = p.mean(0)
+        else:
+            p = p.reshape(n_anchors,x.shape[0],p.shape[1])
+            mu = p.mean(0)
+            
+        #p = p.reshape(n_anchors,x.shape[0],p.shape[1])
+        #mu = p.mean(0)
 
         if return_std:
-            if self.estimator == 'std':
-                std = p.std(0)
-            elif self.estimator == 'rsd':
-                std = p.std(0)
-                std = std / (mu+1e-8)
-            elif self.estimator == 'minmax':
-                std = p.max(0)[0] - p.min(0)[0]
-                std = std / mu
-            elif self.estimator == 'maxmin':
-                std = p.max(0)[0] - p.min(0)[0]
-            else:
-                raise ValueError(f"Unknown estimator: {self.estimator}")
+            std = p.std(0)
             return mu, std
+        elif return_pred_matrix:
+            return p
         else:
             return mu
 
