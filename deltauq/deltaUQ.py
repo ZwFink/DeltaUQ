@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 
 
 class deltaUQ(torch.nn.Module):
-    def __init__(self,base_network):
+    def __init__(self,base_network, estimator ='std'):
             super(deltaUQ, self).__init__()
             '''
 
@@ -24,6 +24,8 @@ class deltaUQ(torch.nn.Module):
                 self.net = base_network
             else:
                 raise Exception('base network needs to be defined')
+            
+            self.estimator = estimator
 
     def create_anchored_batch(self,x,anchors=None,n_anchors=1,corrupt=False):
         '''
@@ -42,6 +44,8 @@ class deltaUQ(torch.nn.Module):
         ## make anchors (n_anchors) --> n_img*n_anchors
         if self.training:
             A = anchors[torch.randint(anchors.shape[0],(n_img*n_anchors,)),:]
+            A = torch.cat((A, x), dim=0)  # Added these two lines to make sure the model sees 'zero' residual during training
+            x = torch.cat((x, x), dim=0)  # i.e, [r, 0]
         else:
             A = torch.repeat_interleave(anchors[torch.randperm(n_anchors),:],n_img,dim=0)    
 
@@ -60,7 +64,6 @@ class deltaUQ(torch.nn.Module):
             diff = x.tile((n_anchors,1,1,1)) - A
 
         batch = torch.cat([refs,diff],axis=1)
-
         return batch
 
     
@@ -117,8 +120,6 @@ class deltaUQ_CNN(deltaUQ):
             '''
             if base_network is not None:
                 self.net = base_network
-                if self.net.conv1.weight.shape[1]!=6:
-                    raise ValueError('Base Network has incorrect number of input channels (must be 6 for RGB datasets)')
 
     def corruption(self,samples):
         self.txs = transforms.Compose([
@@ -146,7 +147,13 @@ class deltaUQ_CNN(deltaUQ):
         a_batch = self.create_anchored_batch(x,anchors=anchors,n_anchors=n_anchors,corrupt=corrupt)
         p = self.net(a_batch)
         
+        # This un-does the part of the reshape that takes it to 
+        # n_img * n_anchors, and then averages over the n_anchors.
+        # However, it doesn't work for FCNNs. For now,
+        # hard-code the fix for FCNN
+        # p = p.reshape(n_anchors,x.shape[0],p.shape[1])
         p = p.reshape(n_anchors,x.shape[0],p.shape[1])
+        # p = p.reshape(n_anchors, x.shape[0], *p.shape[1::])
         mu = p.mean(0)
 
         if return_std:
@@ -160,7 +167,7 @@ class deltaUQ_CNN(deltaUQ):
 
 
 class deltaUQ_MLP(deltaUQ):
-    def forward(self,x,anchors=None,corrupt=False,n_anchors=1,return_std=False):
+    def forward(self,x,anchors=None,corrupt=False,n_anchors=1,return_std=False, return_pred_matrix=False):
         # no calibration
         if n_anchors==1 and return_std:
             raise Warning('Use n_anchor>1, std. dev cannot be computed!')
@@ -168,12 +175,21 @@ class deltaUQ_MLP(deltaUQ):
         a_batch = self.create_anchored_batch(x,anchors=anchors,n_anchors=n_anchors,corrupt=corrupt)
         p = self.net(a_batch)
         
-        p = p.reshape(n_anchors,x.shape[0],p.shape[1])
-        mu = p.mean(0)
+        if self.training:
+            p = p.reshape(n_anchors,x.shape[0]*2,p.shape[1]) # Modified this to accommodate the fact we have included 'zero' residual
+            mu = p.mean(0)
+        else:
+            p = p.reshape(n_anchors,x.shape[0],p.shape[1])
+            mu = p.mean(0)
+            
+        #p = p.reshape(n_anchors,x.shape[0],p.shape[1])
+        #mu = p.mean(0)
 
         if return_std:
             std = p.std(0)
             return mu, std
+        elif return_pred_matrix:
+            return p
         else:
             return mu
 
