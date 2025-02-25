@@ -123,11 +123,13 @@ class deltaUQ_CNN(deltaUQ):
 
     def corruption(self,samples):
         self.txs = transforms.Compose([
-               transforms.RandomResizedCrop(size=32,scale=(0.6,1.0)),
-               transforms.RandomHorizontalFlip(),
-               transforms.RandomApply([transforms.ColorJitter(0.5),
-                                       transforms.GaussianBlur(kernel_size=(3, 9), sigma=(0.1, 5))], p=0.8),
-                                       transforms.RandomGrayscale(p=0.2)])
+
+                transforms.RandomResizedCrop(size=32,scale=(0.6,1.0)),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomApply([transforms.ColorJitter(0.5),
+                                        transforms.GaussianBlur(kernel_size=(3, 9), sigma=(0.1, 5))], p=0.8),
+                                        transforms.RandomGrayscale(p=0.2)])
+
         return self.txs(samples)
         
     def calibrate(self,mu,sig):
